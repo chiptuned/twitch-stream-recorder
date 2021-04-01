@@ -16,6 +16,8 @@ import requests
 import multiprocessing
 import config
 
+streamers_ended = []
+
 
 class TwitchResponseStatus(enum.Enum):
     ONLINE = 0
@@ -34,12 +36,21 @@ def load_csv_into_dict(filename):
     return database_streamers
 
 
+def collect_end_record(username):
+    global streamers_ended
+    streamers_ended.append(username[0])
+
+    # pprint.pp('collect_end_record')
+    # pprint.pp(username)
+    # pprint.pp(streamers_ended)
+
+
 class TwitchRecorder:
     def __init__(self):
         # global configuration
         self.ffmpeg_path = "ffmpeg"
         self.disable_ffmpeg = False
-        self.refresh = 30
+        self.refresh = 15
         self.root_path = config.root_path
 
         # user configuration
@@ -49,7 +60,8 @@ class TwitchRecorder:
         self.quality = "best"
         self.active_streamers = []
         self.streamers_to_record = []
-        self.max_simultaneous_record = multiprocessing.cpu_count()
+        self.streamers_recording = []
+        self.n_workers = multiprocessing.cpu_count()
 
         # twitch configuration
         self.client_id = config.client_id
@@ -66,13 +78,12 @@ class TwitchRecorder:
         return token["access_token"]
 
     def run(self):
-        pool = multiprocessing.Pool(multiprocessing.cpu_count())
+        pool = multiprocessing.Pool(self.n_workers)
         while True:
             self.get_streamers_to_record()
-            if len(self.streamers_to_record) == 0:
-                logging.info("no online whitelisted streamers.")
-            pool.map_async(self.record_streamer, self.streamers_to_record)
-            self.get_streamers_to_record()
+            if len(self.streamers_to_record) != 0:
+                r = pool.map_async(self.record_streamer, [self.streamers_to_record[0]], callback=collect_end_record)
+                self.streamers_recording.append(self.streamers_to_record[0])
             time.sleep(self.refresh)
 
     def process_recorded_file(self, recorded_filename, processed_filename):
@@ -179,7 +190,27 @@ class TwitchRecorder:
         db = {k: database_dict.get(k, '') for k in keys}
 
         filtered_db = {k: v for k, v in db.items() if v != ""}
-        self.streamers_to_record = list(set(list(filtered_db.keys())).intersection(self.active_streamers))
+
+        while len(streamers_ended) != 0:
+            # pprint.pp("streamers rcding : ")
+            # pprint.pp(self.streamers_recording)
+            # pprint.pp("streamers ended idx : ")
+            # pprint.pp(streamers_ended)
+            self.streamers_recording.remove(streamers_ended[0])
+            streamers_ended.remove(streamers_ended[0])
+
+        self.streamers_to_record = list(set(filtered_db.keys())
+                                        & set(self.active_streamers)
+                                        ^ set(self.streamers_recording))
+        # pprint.pp("after purge : ")
+        # pprint.pp("active streamers : ")
+        # pprint.pp(self.active_streamers)
+        # pprint.pp("streamers to record : ")
+        # pprint.pp(self.streamers_to_record)
+        # pprint.pp("streamers recording : ")
+        # pprint.pp(self.streamers_recording)
+        # pprint.pp("streamers finished : ")
+        # pprint.pp(streamers_ended)
 
     def record_streamer(self, username):
         # path to recorded stream
@@ -212,7 +243,6 @@ class TwitchRecorder:
         except Exception as e:
             logging.error(e)
 
-        logging.info("checking every %s seconds, recording with %s quality", self.refresh, self.quality)
         status, info = self.check_user(username)
 
         if status == TwitchResponseStatus.NOT_FOUND:
@@ -233,7 +263,7 @@ class TwitchRecorder:
             channels = info["data"]
             channel = next(iter(channels), None)
             filename = datetime.datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss") + " - " \
-		+ username + " - " + channel.get("title") + ".mp4"
+                       + username + " - " + channel.get("title") + ".mp4"
 
             # clean filename from unnecessary characters
             filename = "".join(x for x in filename if x.isalnum() or x in [" ", "-", "_", "."])
@@ -246,8 +276,9 @@ class TwitchRecorder:
                 ["streamlink", "--twitch-disable-ads", "twitch.tv/" + username, self.quality,
                  "-o", recorded_filename])
 
-            # For tests :
-            # open(recorded_filename, 'a').close()
+            # FIXME For tests :
+            # f = open(recorded_filename, 'w+')
+            # f.close()
 
             logging.info("recording stream is done, processing video file")
             if os.path.exists(recorded_filename) is True:
@@ -256,7 +287,7 @@ class TwitchRecorder:
                 logging.info("skip fixing, file not found")
 
             logging.info("processing is done, going back to checking...")
-            time.sleep(self.refresh)
+        return username
 
 
 def main(argv):
