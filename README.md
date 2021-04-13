@@ -30,6 +30,8 @@ language = "Francais"
 
 ## Running script
 The script will be logging to a console and to a file `twitch-recorder.log`
+/TODO : explain how multirecording works. There is a wishlist to enable streamers, and it's trying to record all whitelisted one, playing a certain game in a certain language.
+/TODO : change all logic to just scrap all streamers of a certain game/language + streamers that we wanna record and record everything whitelisted.
 ### On linux
 Run the script
 ```shell script
