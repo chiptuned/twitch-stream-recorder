@@ -40,9 +40,9 @@ def collect_end_record(username):
     global streamers_ended
     streamers_ended.append(username[0])
 
-    # pprint.pp('collect_end_record')
-    # pprint.pp(username)
-    # pprint.pp(streamers_ended)
+    logging.info('collect_end_record')
+    logging.info(username)
+    logging.info(streamers_ended)
 
 
 class TwitchRecorder:
@@ -55,6 +55,7 @@ class TwitchRecorder:
 
         # user configuration
         self.database_filename = "streamers.csv"
+        self.log_filename = "historique.csv"
         self.game = config.game
         self.language = config.language
         self.quality = "best"
@@ -192,25 +193,24 @@ class TwitchRecorder:
         filtered_db = {k: v for k, v in db.items() if v != ""}
 
         while len(streamers_ended) != 0:
-            # pprint.pp("streamers rcding : ")
-            # pprint.pp(self.streamers_recording)
-            # pprint.pp("streamers ended idx : ")
-            # pprint.pp(streamers_ended)
+            logging.info("streamers rcding : ")
+            logging.info(self.streamers_recording)
+            logging.info("streamers ended idx : ")
+            logging.info(streamers_ended)
+            f = open(self.log_filename, "a")
+            f.write(streamers_ended[0] + " - " + datetime.datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss") + '\n')
+            f.close()
+
             self.streamers_recording.remove(streamers_ended[0])
             streamers_ended.remove(streamers_ended[0])
 
-        self.streamers_to_record = list(set(filtered_db.keys())
-                                        & set(self.active_streamers)
-                                        ^ set(self.streamers_recording))
-        # pprint.pp("after purge : ")
-        # pprint.pp("active streamers : ")
-        # pprint.pp(self.active_streamers)
-        # pprint.pp("streamers to record : ")
-        # pprint.pp(self.streamers_to_record)
-        # pprint.pp("streamers recording : ")
-        # pprint.pp(self.streamers_recording)
-        # pprint.pp("streamers finished : ")
-        # pprint.pp(streamers_ended)
+
+        self.streamers_to_record = list((set(filtered_db.keys()) & set(self.active_streamers)
+                                         ^ set(self.streamers_recording))
+                                        & (set(filtered_db.keys()) & set(self.active_streamers)))
+
+        logging.info("active streamers : " + datetime.datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss"))
+        logging.info(self.active_streamers)
 
     def record_streamer(self, username):
         # path to recorded stream
