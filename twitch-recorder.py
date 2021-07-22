@@ -50,16 +50,17 @@ class TwitchRecorder:
         # global configuration
         self.ffmpeg_path = "ffmpeg"
         self.disable_ffmpeg = False
-        self.refresh = 15
+        self.refresh = 45
         self.root_path = config.root_path
 
         # user configuration
         self.database_filename = "streamers.csv"
         self.log_filename = "historique.csv"
         self.game = config.game
-        self.language = config.language
-        self.quality = "best"
+        self.quality_exclusion = ">720p30"
+        self.quality = "high,best"
         self.active_streamers = []
+        self.active_streamers_count = []
         self.streamers_to_record = []
         self.streamers_recording = []
         self.n_workers = multiprocessing.cpu_count()
@@ -71,6 +72,10 @@ class TwitchRecorder:
                          + self.client_secret + "&grant_type=client_credentials"
         self.url = "https://api.twitch.tv/helix/"
         self.access_token = self.fetch_access_token()
+
+        # variables
+        self.game_id = self.get_game_id()
+        self.language = str(langcodes.find(config.language))
 
     def fetch_access_token(self):
         token_response = requests.post(self.token_url, timeout=15)
@@ -127,10 +132,9 @@ class TwitchRecorder:
     def check_active_streamers_from_game(self):
         info = None
         status = TwitchResponseStatus.ERROR
-        language = str(langcodes.find(self.language))
         try:
             headers = {"Client-ID": self.client_id, "Authorization": "Bearer " + self.access_token}
-            full_url = self.url + "streams/?game_id=" + self.get_game_id() + "&language=" + language + "&first=100"
+            full_url = self.url + "streams/?game_id=" + self.game_id + "&language=" + self.language + "&first=100"
             r = requests.get(full_url, headers=headers, timeout=15)
             r.raise_for_status()
             info = r.json()
@@ -138,14 +142,14 @@ class TwitchRecorder:
                 status = TwitchResponseStatus.OFFLINE
             else:
                 status = TwitchResponseStatus.ONLINE
+            self.active_streamers = [streamer_data["user_name"] for streamer_data in info["data"]]
+            self.active_streamers_count = [streamer_data["viewer_count"] for streamer_data in info["data"]]
         except requests.exceptions.RequestException as e:
             if e.response:
                 if e.response.status_code == 401:
                     status = TwitchResponseStatus.UNAUTHORIZED
                 if e.response.status_code == 404:
                     status = TwitchResponseStatus.NOT_FOUND
-
-        self.active_streamers = [streamer_data["user_name"] for streamer_data in info["data"]]
 
     def get_game_id(self):
         info = None
@@ -211,6 +215,7 @@ class TwitchRecorder:
 
         logging.info("active streamers : " + datetime.datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss"))
         logging.info(self.active_streamers)
+        logging.info(self.active_streamers_count)
 
     def record_streamer(self, username):
         # path to recorded stream
@@ -272,9 +277,9 @@ class TwitchRecorder:
             processed_filename = os.path.join(processed_path, filename)
 
             # start streamlink process
-            subprocess.call(
-                ["streamlink", "--twitch-disable-ads", "twitch.tv/" + username, self.quality,
-                 "-o", recorded_filename])
+            cl = ["streamlink", "--twitch-disable-ads", "--stream-sorting-excludes", self.quality_exclusion,
+                "twitch.tv/" + username, self.quality, "-o", recorded_filename]
+            subprocess.call(cl)
 
             # FIXME For tests :
             # f = open(recorded_filename, 'w+')
